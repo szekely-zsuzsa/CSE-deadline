@@ -1,0 +1,708 @@
+---
+title: "no-deadline Srtoop: creating processed data from raw"
+author: "Zsuzsa Szekely"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Load packages
+
+```{r load packages}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, osfr, janitor, lubridate, purrrlyr)
+```
+
+# Load helper functions
+
+```{r load helper functions}
+source("R/utils.R")
+```
+
+# Import data
+
+```{r}
+# Reading in data
+raw <- read_tsv("deadline/data/raw/raw_data.tsv")
+```
+
+# Data sorting
+
+## make only trials stay in the dataframe, remove all other rows (all the trials have a value in variable "word", all the other rows have no value there)
+
+```{r}
+raw <- 
+  raw %>% 
+  filter(!is.na(word))
+```
+
+## create variable for identifying the different sections (practice, calibration, test)
+
+```{r}
+raw <- 
+  raw %>% 
+  mutate(section = case_when(sender == "StroopPracticeTrial" ~ "practice",
+                             sender == "1_StroopCalibrationTrial" ~ "calibration",
+                             sender == "2_StroopCalibrationTrial" ~ "calibration",
+                             sender == "3_StroopCalibrationTrial" ~ "calibration",
+                             sender == "4_StroopCalibrationTrial" ~ "calibration",
+                             sender == "1_StroopCalibrationTrial" ~ "calibration",
+                             sender == "1_StroopTestTrial" ~ "test",
+                             sender == "2_StroopTestTrial" ~ "test",
+                             sender == "3_StroopTestTrial" ~ "test",
+                             sender == "4_StroopTestTrial" ~ "test"
+                             ))
+```
+
+# create variable for trial serial number within each section of each block
+
+```{r}
+raw <- 
+  raw %>% 
+  # group_by(participant_id, blockId, section) %>% change next row to this
+  group_by(blockId, section) %>% 
+  mutate(trialNumber = row_number())
+```
+
+# Add variables storing whether the previous trials were congruent and correct
+
+```{r previous congruency}
+raw <-
+  raw %>%
+  mutate(isPrevCongruent = case_when(trialNumber < 2 ~ NA_integer_,
+                                     trialNumber >= 2 & lag(congruency) == "con" ~ 1L,
+                                     trialNumber >= 2 & lag(congruency) == "inc" ~ 0L))
+```
+
+# Create condition variable based on the congruency of current and previous trials
+
+* ii: incongruent follows incongruent
+* ic: congruent follows incongruent
+* ci: incongruent follows congruent
+* cc: congruent follows congruent
+
+```{r}
+raw <-
+  raw %>%
+  mutate(condition = case_when(isPrevCongruent == 0L & congruency == "inc" ~ "ii",
+                               isPrevCongruent == 0L & congruency == "con" ~ "ic",
+                               isPrevCongruent == 1L & congruency == "inc" ~ "ci",
+                               isPrevCongruent == 1L & congruency == "con" ~ "cc",
+                               TRUE ~ NA_character_))
+```
+
+# make timeout test responses FALSE in variable "correct", so that timeout responses count as incorrect responses
+
+```{r}
+test <- 
+  test %>%
+  mutate(correct = replace_na(correct, FALSE))
+         
+```
+
+# create new variable storing whether the previous trials were correct
+
+```{r}
+test <- 
+  test %>% 
+  mutate(isPrevCorrect = case_when(trialNumber < 2 ~ NA_integer_,
+                                   trialNumber >= 2 & lag(correct) == TRUE ~ 1L,
+                                   trialNumber >= 2 & lag(correct) == FALSE ~ 0L))
+```
+
+
+
+
+
+
+
+
+
+
+
+PARTICIPANT LEVEL EXCLUSIONS
+
+1. participants who didn't finish the task will be excluded
+
+Each participant who completed the task should have data from 24 practice trials, 112 calibration trials and 324 test trials (total = 460).
+
+# check if the task was completed
+
+```{r}
+raw %>% 
+  count(section) %>% 
+  mutate(complete = case_when(section == "practice" & n == 8 ~ "complete",
+                              section == "calibration" & n == 16 ~ "complete",
+                              section == "test" & n == 36 ~ "complete"
+                              # , TRUE ~ incomplete
+                              ))
+```
+
+2. participants with mean accuracy below 70% of the mean accuracy of the whole sample will be excluded
+
+# calculate accuracy of respondents and create variable for accuracy-based exclusion
+
+```{r}
+raw %>% 
+  group_by(correct) %>%
+  # group_by participant id first when analyzing all participants' data
+  summarise(n = n()) %>%
+  # group_by(participant_id) %>%
+  mutate(N = sum(n),
+         prop = n / N * 100,
+         dropParticipantAcc = case_when(prop < 70 ~ 1L,
+                                          TRUE ~ 0L))
+```
+
+
+WEISSMAN
+Number of participants per task per wave with dropping because of accuracy.
+
+```{r}
+map(raw$response,
+    . %>% 
+      distinct(participant_id, wave, dropParticipantAcc) %>% 
+      group_by(wave, dropParticipantAcc) %>% 
+      summarise(n = n()))
+```
+
+Get the id of the participants who will be dropped.
+
+```{r}
+map(raw$response,
+    . %>% 
+      filter(dropParticipantAcc == 1) %>% 
+      distinct(participant_id, wave)) # 459 419
+```
+
+Exclusion.
+
+```{r}
+raw <-
+   raw %>%
+   mutate(response = map(response,
+                         . %>% 
+                         group_by(participant_id) %>% 
+                         filter(!any(dropParticipantAcc == 1L))))
+```
+
+Check if the exclusion was succesful. There should be
+  * 94 distinct responses in Primeprobe
+  * distinct responses in Flanker
+  
+```{r}
+map(raw$response,
+    .%>% 
+      distinct(participant_id, wave) %>% 
+      nrow())
+```
+WEISSMAN END
+
+3. participants with mean RT more than 2.5 SDs away from the mean RT of the whole sample will be excluded
+
+We use the RT-s of the the calibration trials only, as their mean RT give the personal deadline for the test trials.
+
+```{r}
+
+```
+
+WEISSMAN
+# Calucalte the mean response time and SD for exclusion
+
+We calculate the mean RT for each participant in each wave and the grand mean RT per wave for participant level exclusion.
+
+```{r calculate mean response time}
+raw <-
+  raw %>%
+  mutate(rtParticipantOutliers = map(response,
+                                     . %>%
+                                       group_by(participant_id, wave) %>%
+                                       summarise(rtParticipantMean = mean(rt, na.rm = T),
+                                                 rtParticipantSd = sd(rt, na.rm = T)) %>%
+                                       group_by(wave) %>% 
+                                       mutate(rtGrandMean = mean(rtParticipantMean, na.rm = T),
+                                              rtGrandSd = sd(rtParticipantMean, na.rm = T))))
+```
+
+# Check the number of missing RTs
+
+```{r}
+raw %>% 
+  filter(is.na(reaction_time)) %>%
+  nrow()
+```
+
+Get the number of participants per task before exclusion.
+
+```{r}
+raw %>%
+  distinct(participant_id) %>%
+  nrow()
+```
+
+The number of participants who will be dropped because of their mean RT is out of bounds.
+
+```{r}
+map(raw$response,
+    . %>% 
+      distinct(participant_id, wave, dropParticipantRt) %>% 
+      group_by(wave, dropParticipantRt) %>% 
+      summarise(n = n()))
+```
+
+Get the id of the participants who will be dropped.
+
+```{r}
+map(raw$response,
+    . %>% 
+      filter(dropParticipantRt == 1) %>% 
+      distinct(participant_id, wave))
+```
+
+Exclusion.
+
+```{r participant level RT exclusion}
+raw <-
+   raw %>%
+   mutate(response = map(response,
+                         . %>% 
+                         group_by(participant_id) %>% 
+                         filter(!any(dropParticipantRt  == 1L))))
+```
+
+Check if the exclusion was successful. There should be
+  * 94 distinct responses in Flanker
+  * 106 distinct responses in Stroop
+  * 82 distinct responses in Simon
+  
+```{r}
+map(raw$response,
+    .%>% 
+      distinct(participant_id, wave) %>% 
+      nrow())
+```
+WEISSMAN END
+
+
+
+
+
+
+
+
+
+TRIAL LEVEL EXCLUSIONS
+
+* 1. exclude practice and calibration trials
+
+# Save practice, calibration and test trials to a separate dfs
+
+```{r}
+practice <-
+  raw %>%
+  filter(section == "practice")
+
+calibration <- 
+  raw %>% 
+  filter(section == "calibration")
+
+test <- 
+  raw %>% 
+  filter(section == "test")
+```
+
+# the number of trials after excluding the practice trials.
+
+Expected number of trials for each participant:
+ practice: 24
+ calibration: 112
+ test: 324
+
+```{r}
+nrow(practice)
+nrow(calibration)
+nrow(test)
+```
+
+* 2: exclude first test trial in each block for each participant
+
+Each task had 4 blocks. Therefore, the number of trials that will be dropped equals the number of participants multiplied by four. Lets check this.
+
+```{r}
+test %>%
+  filter(trialNumber == 1) %>%
+  nrow()
+```
+
+Dropping the trials.
+
+```{r}
+test <- 
+  test %>% 
+  filter(trialNumber != 1) # 1 trial level exclusion criteria
+# Other way to do this: !is.na(isPrevCongruent)
+```
+
+* 3: exclude trials with RT more than 2.5 SDs away from conditional mean RT
+
+WEISSMAN
+We then calculated the mean RT per condition (iI, iC, cI, cC) as well.
+
+```{r}
+raw <-
+  raw %>%
+  mutate(rtTrialOutliers = map(response,
+                               . %>% 
+                                 group_by(participant_id, wave, isCongruent, isPrevCongruent) %>% 
+                                 summarise(rtConditionalMean = mean(rt, na.rm = T),
+                                           rtConditionalSd = sd(rt, na.rm = T))))
+```
+
+Each participant should have 8 means in the rtTrialOutliers summary (4 condidition * 2 wave).
+
+```{r}
+map(raw$rtTrialOutliers,
+    . %>% 
+      group_by(participant_id) %>% 
+      count() %>% 
+      filter(n != 8))
+```
+
+Lets take a look at the number of the congruent and incongruent trials per condition.
+
+```{r}
+map(raw$response,
+    . %>% 
+      group_by(wave, isCongruent, isPrevCongruent) %>% 
+      summarise(n = n()))
+```
+
+```{r}
+raw <-
+  raw %>%
+  mutate(response = map2(response, rtParticipantOutliers, 
+                         ~ left_join(.x, .y, by = c("wave", "participant_id"))),
+         response = map2(response, rtTrialOutliers,
+                         ~ left_join(.x, .y, by = c("wave", "participant_id", "isCongruent", "isPrevCongruent"))))
+```
+
+# Create variable that stores whether a participant or a trial should be dropped based on the rt criteria
+
+```{r}
+raw <-
+  raw %>%
+  mutate(response = map(response,
+                        . %>% 
+                          group_by(wave, participant_id) %>%
+                          mutate(dropTrialRt = case_when(rtConditionalMean + 2.5 * rtConditionalSd < rt ~ 1L,
+                                                         rtConditionalMean - 2.5 * rtConditionalSd > rt ~ 1L,
+                                                         TRUE ~ 0L),
+                                 # At this point there should be no trial == 1 trials because they were removed, trial == 2 trials will have NO previous trial as the immediately preceding trial will be the last trial of the previous block
+                                 isPrevDropTrialRt = case_when(trial == 2 ~ NA_integer_, 
+                                                               trial > 2 & lag(dropTrialRt) == 1L ~ 1L,
+                                                               trial > 2 & lag(dropTrialRt) == 0L ~ 0L),
+                                 dropParticipantRt = case_when(rtGrandMean + 2.5 * rtGrandSd < rtParticipantMean ~ 1L,
+                                                               rtGrandMean - 2.5 * rtGrandSd > rtParticipantMean ~ 1L,
+                                                               TRUE ~ 0L)) %>% 
+                          ungroup()))
+```
+WEISSMAN END
+
+
+* 4: exclude test trials with erroneous and timeout responses
+
+WEISSMAN
+# Trial level exclusion for rt analysis
+
+* 2: Error trials
+
+```{r}
+raw <-
+  raw %>% 
+  mutate(responseRtAnalysis = map(response, ~ filter(., isCorrect == 1L)))
+```
+
+* 3: Trials following error trials
+
+```{r}
+raw <-
+  raw %>% 
+  mutate(responseRtAnalysis = map(responseRtAnalysis, ~ filter(., isPrevCorrect == 1L)))
+```
+
+* 4: Outliers, trials 2.5 SDs away from the conditional mean of the participant
+
+```{r}
+raw <-
+  raw %>% 
+  mutate(responseRtAnalysis = map(responseRtAnalysis, ~ filter(., dropTrialRt == 0L)))
+```
+
+* 5: Trials following outlier trials
+
+```{r trial level exclusion reaction time}
+raw <-
+  raw %>% 
+  mutate(responseRtAnalysis = map(responseRtAnalysis, ~ filter(., isPrevDropTrialRt == 0L)))
+```
+
+## Checking whether there are trials remaining in each condition (ii, ic, ci, cc) from each participant in both waves for the rt analysis
+
+```{r}
+map(raw$responseRtAnalysis,
+    . %>%
+      count(wave, participant_id, condition) %>% 
+      group_by(participant_id, wave) %>% 
+      summarise(n = n()) %>% 
+      filter(n != 4))
+```
+
+# Trial level exclusion for error analysis
+
+Before the exclusion we check the mean accuracy and SD of accuracy per condition.
+
+```{r}
+map(raw$response,
+    . %>% 
+      group_by(wave, condition) %>% 
+      summarise(mean_acc = mean(isCorrect, na.rm = T),
+                sd_acc = sd(isCorrect, na.rm = T)))
+
+map(raw$response,
+    . %>% 
+      group_by(wave, isCongruent) %>% 
+      summarise(mean_acc = mean(isCorrect, na.rm = T),
+                sd_acc = sd(isCorrect, na.rm = T)))
+```
+
+* 2: Outliers, trials 2.5 SDs away from the conditional mean of the participant
+
+```{r}
+raw <-
+  raw %>% 
+  mutate(responseAccAnalysis = map(response, ~ filter(., dropTrialRt == 0L)))
+```
+
+* 3: Trials following outlier trials
+
+```{r trial level exclusion error}
+raw <-
+  raw %>% 
+  mutate(responseAccAnalysis = map(responseAccAnalysis, ~ filter(., isPrevDropTrialRt == 0L)))
+```
+
+Check if after the exclusion there is still some variance in the accuracy scores.
+
+```{r}
+map(raw$responseAccAnalysis,
+    . %>% 
+      group_by(wave, condition) %>% 
+      summarise(mean_acc = mean(isCorrect, na.rm = T),
+                sd_acc = sd(isCorrect, na.rm = T)))
+
+map(raw$responseAccAnalysis,
+    . %>% 
+      group_by(wave, isCongruent) %>% 
+      summarise(mean_acc = mean(isCorrect, na.rm = T),
+                sd_acc = sd(isCorrect, na.rm = T)))
+```
+
+## Checking whether there are trials remaining in each condition (ii, ic, ci, cc) from each participant in both waves for the accuracy analysis
+
+It would be a suprise if it did not as we used these and even more exclusion criteria for the RT analysis and we could not find a case where there were less than four conditions.
+
+```{r}
+map(raw$responseAccAnalysis,
+    . %>%
+      count(wave, participant_id, condition) %>% 
+      group_by(participant_id, wave) %>% 
+      summarise(n = n()) %>% 
+      filter(n != 4))
+```
+WEISSMAN END
+
+
+
+
+
+
+
+
+
+
+
+WEISSMAN
+# Looking for ceiling effect regarding accuracy
+## Mean and SD of accuracy of congruent and incongruent trials
+
+```{r}
+# creating variable (congruency_prop) for accuracy measured in congruent and incongruent trials in each task, in both waves
+raw <-
+  raw %>% 
+  mutate(acc_checks = map(responseAccAnalysis,
+                        . %>%
+                          group_by(wave, participant_id, isCongruent) %>%
+                          mutate(congruency_prop = sum(isCorrect) / n() * 100,
+                                 congruency_sd = sd(isCorrect))))
+
+# calculating mean and SD of accuracy of congruent and incongruent trials in both waves
+map(raw$acc_checks,
+    . %>% 
+      group_by(wave, isCongruent) %>% 
+      summarise(mean_acc = mean(congruency_prop),
+                sd_acc = sd(congruency_prop),
+                n_trial = n()))
+
+# calculating mean and SD of accuracy of congruent and incongruent trials in both waves per each participant
+map(raw$acc_checks,
+    . %>% 
+      distinct(wave, participant_id, .keep_all = TRUE) %>% 
+      select(wave, participant_id, congruency_prop, congruency_sd))
+```
+
+## Plots of accuracy
+
+```{r}
+# accuracy distribution in Prime-probe
+## wave 1
+raw$responseAccAnalysis[[1]] %>% 
+  filter(wave == 1L) %>%
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+  
+## wave 2
+raw$responseAccAnalysis[[1]] %>% 
+  filter(wave == 2L) %>%
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+# accuracy distribution in Flanker
+## wave 1
+raw$responseAccAnalysis[[2]] %>% 
+  filter(wave == 1L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+## wave 2
+raw$responseAccAnalysis[[2]] %>% 
+  filter(wave == 2L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+# accuracy distribution in Stroop
+## wave 1
+raw$responseAccAnalysis[[3]] %>% 
+  filter(wave == 1L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+## wave 2
+raw$responseAccAnalysis[[3]] %>% 
+  filter(wave == 2L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+# accuracy distribution in Simon
+## wave 1
+raw$responseAccAnalysis[[4]] %>% 
+  filter(wave == 1L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+
+## wave 2
+raw$responseAccAnalysis[[4]] %>% 
+  filter(wave == 2L) %>% 
+  group_by(participant_id) %>% 
+  ggplot(aes(x = prop)) +
+  geom_bar() +
+  scale_y_continuous(limits = c(0, 3000)) +
+  scale_x_continuous(limits = c(75, 100))
+```
+
+# Trial level exclusion for exploratory error analysis
+
+* 2: Outliers, trials 2.5 SDs away from the conditional mean of the participant
+* 3: Trials following outlier trials
+* 4: Trials following error trials (requested by reviewer)
+
+```{r trial level exclusion exploratory error}
+raw <-
+  raw %>% 
+  mutate(responseAccExpAnalysis = map(response,
+                                   ~ filter(.,
+                                            dropTrialRt       == 0L,   # 2 exclusion criteria
+                                            isPrevDropTrialRt == 0L,   # 3 exclusion criteria
+                                            isPrevCorrect     == 1L))) # 4 exclusion criteria
+```
+
+## Checking whether there are trials remaining in each condition (ii, ic, ci, cc) from each participant in both waves for the accuracy exploratory analysis
+
+```{r}
+map(raw$responseAccExpAnalysis,
+    . %>%
+      count(wave, participant_id, condition))
+```
+
+# Save task to individual dataframes
+
+```{r create output directories}
+out_dir <- "data/Processed/"
+
+if(!dir.exists(out_dir)){
+  dir.create(out_dir,recursive = T)
+}
+for (i in 1:length(subfolder)) {
+  out_dir2 <- paste0(out_dir,subfolder[i])
+  if(!dir.exists(out_dir2)  ){
+    dir.create(out_dir2,recursive = T)
+  }
+}
+
+```
+
+```{r save tasks}
+# Saving data for the reaction time analysis
+walk2(raw$responseRtAnalysis, raw$task,
+      ~ write_tdf2(data_column = .x,
+                   id_column = .y,
+                   folder_path = out_dir,
+                   extra_name = "_Rt"))
+
+# Saving data for the accuracy analysis
+walk2(raw$responseAccAnalysis, raw$task,
+      ~ write_tdf2(data_column = .x,
+                   id_column = .y,
+                   folder_path = out_dir,
+                   extra_name = "_Acc"))
+
+# Saving data for the exploratory accuracy analysis
+walk2(raw$responseAccExpAnalysis, raw$task,
+      ~ write_tdf2(data_column = .x,
+                   id_column = .y,
+                   folder_path = out_dir,
+                   extra_name = "_Acc_Exploratory"))
+```
+
+Final tsv files were uploaded to OSF manually.
