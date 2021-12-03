@@ -204,3 +204,27 @@ Bf <- function(sd, obtained, dfdata, meanoftheory, sdtheory, dftheory, tail = 2)
   BayesFactor
   
 }
+
+#' Read and merge json files convert them to tsv
+read_json_to_tibble <- function(path) {
+  files <- list.files(path = path, pattern = "*.json", full.names = TRUE)
+  
+  parse_json <- function(json_name) {
+    # raw_json <- 
+      jsonlite::fromJSON(json_name) %>% 
+      # purrr::discard(names(.) %in% c("url","meta","")) %>% 
+      mutate(participant = json_name)
+  }
+  
+  datafiles <- 
+    tibble::tibble(
+      files = files,
+      parsed_df = purrr::map(files, parse_json)
+    )
+  
+  datafiles
+
+  # df_list <- rbind(lapply(files, parse_json))
+  # 
+  # do.call(rbind, df_list)
+}

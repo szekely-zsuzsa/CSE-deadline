@@ -9,7 +9,7 @@ output: html_document
 
 ```{r load packages}
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, osfr, janitor, purrrlyr, lubridate)
+pacman::p_load(tidyverse, janitor, jsonlite, rlist)
 ```
 
 # Load helper functions
@@ -18,37 +18,38 @@ pacman::p_load(tidyverse, osfr, janitor, purrrlyr, lubridate)
 source("R/utils.R")
 ```
 
-We will read the source data from a private repository because the datafiles contain personal data.
-
-# Create local data structure
-
-```{r}
-# local_data_pth <- file.path("data","source")
-# 
-# create_local_structure(local_data_pth)
-```
-
-# Remove local data
-
-Uncomment the following lines to remove the local Source data if needed.
-
-```{r}
-# remove_local_data(local_data_pth)
-```
-
 # Import and merge data
 
 ```{r import and merge data}
-# Read in datafiles
-source <- read_csv("deadline/data/source/source_data.csv", na = ".")
-View(source)
+# Read in datafiles from json to a tibble
+source <- read_json_to_tibble("data/deadline/source/")
 
-# Read in participant identifiers data
-# participant_id <- read_csv("data/source/participant_metadata.csv", 
-#                            col_types = cols(consentTime = col_double(), # time of consent
-#                                             eventLog = col_character(), # event log
-#                                             userId = col_character() # user id of the participant. This value was specific in each case.
-# ))
+# Calculate the number of rows and columns
+source <- 
+  source %>%
+  mutate(col_names = map(parsed_df, colnames),
+         col_num = map_int(parsed_df, length),
+         row_num = map_int(parsed_df, nrow),
+         filename = map_chr(parsed_df, ~unique(.x[["participant"]])))
+
+# Check the distribution of the number of responses per column per row
+source %>%
+  count(col_num, row_num)
+
+# Filter and merge the number of datafiles with 26 columns
+source_filtered <- 
+  source %>% 
+  filter(col_num == 26 & row_num == 319) %>% 
+  select(parsed_df)
+
+source_filtered <- bind_rows(source_filtered$parsed_df)
+
+# Clean participant id
+source_filtered <- 
+  source_filtered %>% 
+  group_by(participant) %>% 
+  mutate(participant = cur_group_id()) %>% 
+  arrange(participant)
 ```
 
 # Join data with participant_id...
