@@ -62,10 +62,11 @@ raw <-
   raw %>% 
   # group_by(participant_id, blockId, section) %>% change next row to this
   group_by(blockId, section) %>% 
-  mutate(trialNumber = row_number())
+  mutate(trialNumber = row_number()) %>% 
+  ungroup()
 ```
 
-# Add variables storing whether the previous trials were congruent and correct
+# add variable storing whether the previous trial was congruent
 
 ```{r previous congruency}
 raw <-
@@ -92,25 +93,62 @@ raw <-
                                TRUE ~ NA_character_))
 ```
 
-# make timeout test responses FALSE in variable "correct", so that timeout responses count as incorrect responses
+# make timeout (NA) responses FALSE in variable "correct", so that timeout responses count as incorrect responses
 
 ```{r}
-test <- 
-  test %>%
+# we expect to have missing data in "correct" variable only in case of timeout trials (that has no response). check whether there's any missing data in case of non-timeout trials
+
+# replace NA to FALSE in variable "correct"
+raw <- 
+  raw %>%
   mutate(correct = replace_na(correct, FALSE))
          
 ```
 
-# create new variable storing whether the previous trials were correct
+# create new variable storing whether the previous trial was correct
 
 ```{r}
-test <- 
-  test %>% 
+raw <- 
+  raw %>% 
   mutate(isPrevCorrect = case_when(trialNumber < 2 ~ NA_integer_,
                                    trialNumber >= 2 & lag(correct) == TRUE ~ 1L,
                                    trialNumber >= 2 & lag(correct) == FALSE ~ 0L))
 ```
 
+# Save practice, calibration and test trials to separate dfs
+
+```{r}
+practice <-
+  raw %>%
+  filter(section == "practice")
+
+# calibration <- 
+#   raw %>% 
+#   filter(section == "calibration")
+# 
+# test <- 
+#   raw %>% 
+#   filter(section == "test")
+
+# df containing both calibration and test trials
+calTest <- 
+  raw %>% 
+  filter(section != "practice")
+```
+
+# the number of trials after separating trials
+
+Expected number of trials for each participant:
+ practice: 24
+ calibration: 112
+ test: 324
+
+```{r}
+nrow(practice)
+# nrow(calibration)
+# nrow(test)
+nrow(calTest)
+```
 
 
 
@@ -123,7 +161,7 @@ test <-
 
 PARTICIPANT LEVEL EXCLUSIONS
 
-1. participants who didn't finish the task will be excluded
+* 1. participants who didn't finish the task will be excluded
 
 Each participant who completed the task should have data from 24 practice trials, 112 calibration trials and 324 test trials (total = 460).
 
@@ -131,6 +169,7 @@ Each participant who completed the task should have data from 24 practice trials
 
 ```{r}
 raw %>% 
+  #group_by participants first
   count(section) %>% 
   mutate(complete = case_when(section == "practice" & n == 8 ~ "complete",
                               section == "calibration" & n == 16 ~ "complete",
@@ -139,55 +178,58 @@ raw %>%
                               ))
 ```
 
-2. participants with mean accuracy below 70% of the mean accuracy of the whole sample will be excluded
+* 2. participants with mean accuracy below 70% of the mean accuracy of the whole sample will be excluded
 
-# calculate accuracy of respondents and create variable for accuracy-based exclusion
+# calculate accuracy of respondents and create variable (dropParticipantAcc) for accuracy-based exclusion. accuracy is calculated in case of calibration and test trials (therefore we use calTest df)
 
 ```{r}
-raw %>% 
-  group_by(correct) %>%
+calTest %>%
   # group_by participant id first when analyzing all participants' data
+  group_by(correct) %>%
   summarise(n = n()) %>%
   # group_by(participant_id) %>%
   mutate(N = sum(n),
          prop = n / N * 100,
          dropParticipantAcc = case_when(prop < 70 ~ 1L,
                                           TRUE ~ 0L))
+
+calTest <- 
+  calTest %>% 
+  # group_by participants
+  mutate(prop = sum(correct) / n() * 100,
+         dropParticipantAcc = case_when(prop < 70 ~ 1L,
+                                        TRUE ~ 0L))
 ```
 
-
-WEISSMAN
-Number of participants per task per wave with dropping because of accuracy.
+# Number of participants per task per wave with dropping because of accuracy.
 
 ```{r}
-map(raw$response,
-    . %>% 
-      distinct(participant_id, wave, dropParticipantAcc) %>% 
-      group_by(wave, dropParticipantAcc) %>% 
-      summarise(n = n()))
+calTest %>% 
+  #distinct by participants first
+  distinct(dropParticipantAcc) %>% 
+  group_by(dropParticipantAcc) %>%
+  summarise(n = n()) %>% 
+  ungroup()
 ```
 
-Get the id of the participants who will be dropped.
+# Get the id of the participants who will be dropped.
 
 ```{r}
-map(raw$response,
-    . %>% 
-      filter(dropParticipantAcc == 1) %>% 
-      distinct(participant_id, wave)) # 459 419
+# calTest %>%
+#   filter(dropParticipantAcc == 1) %>%
+#   distinct(participant_id) # id of participants to be dropped:
 ```
 
-Exclusion.
+# Exclusion
 
 ```{r}
-raw <-
-   raw %>%
-   mutate(response = map(response,
-                         . %>% 
-                         group_by(participant_id) %>% 
-                         filter(!any(dropParticipantAcc == 1L))))
+# calTest <-
+#    calTest %>%
+#   # group by participants
+#    filter(!any(dropParticipantAcc == 1L))
 ```
 
-Check if the exclusion was succesful. There should be
+# Check if the exclusion was succesful. There should be
   * 94 distinct responses in Primeprobe
   * distinct responses in Flanker
   
@@ -199,7 +241,7 @@ map(raw$response,
 ```
 WEISSMAN END
 
-3. participants with mean RT more than 2.5 SDs away from the mean RT of the whole sample will be excluded
+* 3. participants with mean RT more than 2.5 SDs away from the mean RT of the whole sample will be excluded
 
 We use the RT-s of the the calibration trials only, as their mean RT give the personal deadline for the test trials.
 
@@ -296,34 +338,6 @@ TRIAL LEVEL EXCLUSIONS
 
 * 1. exclude practice and calibration trials
 
-# Save practice, calibration and test trials to a separate dfs
-
-```{r}
-practice <-
-  raw %>%
-  filter(section == "practice")
-
-calibration <- 
-  raw %>% 
-  filter(section == "calibration")
-
-test <- 
-  raw %>% 
-  filter(section == "test")
-```
-
-# the number of trials after excluding the practice trials.
-
-Expected number of trials for each participant:
- practice: 24
- calibration: 112
- test: 324
-
-```{r}
-nrow(practice)
-nrow(calibration)
-nrow(test)
-```
 
 * 2: exclude first test trial in each block for each participant
 

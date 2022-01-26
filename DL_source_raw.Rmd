@@ -20,36 +20,45 @@ source("R/utils.R")
 
 # Import and merge data
 
+```{r}
+# create list of the names of source files
+file_names <- list.files("data/deadline/source")
+
+# create tibble for checking source files before merging them
+file_tibble <- tibble(name = file_names,
+                      csv = map_dfr(file_names,
+                                    read_csv("data/deadline/source/")),
+                      n_vars = )
+
+# merge csv-s into one df
+
+```
+
 ```{r import and merge data}
 # Read in datafiles from json to a tibble
-source <- read_json_to_tibble("data/deadline/source/")
-
-# Calculate the number of rows and columns
-source <- 
-  source %>%
-  mutate(col_names = map(parsed_df, colnames),
-         col_num = map_int(parsed_df, length),
-         row_num = map_int(parsed_df, nrow),
-         filename = map_chr(parsed_df, ~unique(.x[["participant"]])))
-
-# Check the distribution of the number of responses per column per row
-source %>%
-  count(col_num, row_num)
-
-# Filter and merge the number of datafiles with 26 columns
-source_filtered <- 
-  source %>% 
-  filter(col_num == 26 & row_num == 319) %>% 
-  select(parsed_df)
-
-source_filtered <- bind_rows(source_filtered$parsed_df)
-
-# Clean participant id
-source_filtered <- 
-  source_filtered %>% 
-  group_by(participant) %>% 
-  mutate(participant = cur_group_id()) %>% 
-  arrange(participant)
+# source <- read_json_to_tibble("data/deadline/source/")
+# # Calculate the number of rows and columns
+# source <- 
+#   source %>%
+#   mutate(col_names = map(parsed_df, colnames),
+#          col_num = map_int(parsed_df, length),
+#          row_num = map_int(parsed_df, nrow),
+#          filename = map_chr(parsed_df, ~unique(.x[["participant"]])))
+# # Check the distribution of the number of responses per column per row
+# source %>%
+#   count(col_num, row_num)
+# # Filter and merge the number of datafiles with 26 columns
+# source_filtered <- 
+#   source %>% 
+#   filter(col_num == 26 & row_num == 319) %>% 
+#   select(parsed_df)
+# source_filtered <- bind_rows(source_filtered$parsed_df)
+# # Clean participant id
+# source_filtered <- 
+#   source_filtered %>% 
+#   group_by(participant) %>% 
+#   mutate(participant = cur_group_id()) %>% 
+#   arrange(participant)
 ```
 
 # Join data with participant_id...
@@ -67,7 +76,7 @@ We need to remove any information that might identify the participants
 # Save each task separately
 
 ```{r save tasks}
-write_tsv(source, file = ("deadline/data/raw/raw_data.tsv"))
+# write_tsv(source, file = ("deadline/data/raw/raw_data.tsv"))
 ```
 
 Final tsv files were uploaded to OSF manually.
