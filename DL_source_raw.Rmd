@@ -3,68 +3,95 @@ title: "no-deadline Srtoop: creating raw data from source"
 author: "Zsuzsa Szekely"
 date: '2021 12 01 '
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
-# Load packages
+Load packages
 
 ```{r load packages}
 if (!require("pacman")) install.packages("pacman")
 pacman::p_load(tidyverse, janitor, jsonlite, rlist)
 ```
 
-# Load helper functions
+Load helper functions
 
 ```{r load helper functions}
 source("R/utils.R")
 ```
 
-# Import and merge data
+Import and merge data
 
 ```{r}
 # create list of the names of source files
-file_names <- list.files("data/deadline/source")
+file_names <- list.files("data/deadline/source", include.dirs = TRUE)
+file_dirs <- list.dirs("data/deadline/source")
+
+# read csv files
+csv <- file_list %>% 
+  map_df(~read_csv(.))
+  
 
 # create tibble for checking source files before merging them
-file_tibble <- tibble(name = file_names,
-                      csv = map_dfr(file_names,
-                                    read_csv("data/deadline/source/")),
-                      n_vars = )
+## import data from csv-s into a tibble
+file_tibble_data <- tibble(name = paste0("data/deadline/source/", file_names),
+                           csv = map(name, read_csv)
+                           )
+
+## count rows and cols
+file_tibble <- file_tibble_data %>% 
+  mutate(row_n = map_dbl(csv, nrow), # check if the number of rows are equal in each csv
+         col_n = map_dbl(csv, ncol), # check if the number of columns are equal in each csv
+         col_names = map(csv, colnames)
+         )
+
+# add personal id to each csv
+file_tibble <- file_tibble %>% 
+  mutate(
+    id = row_number(),
+    csv = map2(csv, id,
+               ~ mutate(.x, participant_id = .y) 
+               ))
 
 # merge csv-s into one df
+source <- map_df(
+  file_tibble$csv,
+  ~ bind_rows(.x))
 
+
+# check if all csv-s were fully included. this means that the number of rows of source tibble divided with the number of csv-s (61) should equal with the number of rows of a single csv (497)
+nrow(source)/61
+
+# or in a different way, count how many times each participant_id appears (we expect n = 497 in each case)
+source %>%
+  group_by(participant_id) %>%
+  count() %>% 
+  ungroup()
 ```
 
-```{r import and merge data}
-# Read in datafiles from json to a tibble
-# source <- read_json_to_tibble("data/deadline/source/")
-# # Calculate the number of rows and columns
-# source <- 
-#   source %>%
-#   mutate(col_names = map(parsed_df, colnames),
-#          col_num = map_int(parsed_df, length),
-#          row_num = map_int(parsed_df, nrow),
-#          filename = map_chr(parsed_df, ~unique(.x[["participant"]])))
-# # Check the distribution of the number of responses per column per row
-# source %>%
-#   count(col_num, row_num)
-# # Filter and merge the number of datafiles with 26 columns
-# source_filtered <- 
-#   source %>% 
-#   filter(col_num == 26 & row_num == 319) %>% 
-#   select(parsed_df)
-# source_filtered <- bind_rows(source_filtered$parsed_df)
-# # Clean participant id
-# source_filtered <- 
-#   source_filtered %>% 
-#   group_by(participant) %>% 
-#   mutate(participant = cur_group_id()) %>% 
-#   arrange(participant)
+Check if the task was fully completed by each participant
+
+```{r}
+source %>%
+  group_by(participant_id) %>%
+  count(ended_on) %>% 
+  # filter unfinished task completions
+  filter(any(is.na(ended_on))) %>% 
+  View()
+
+# 4 participants (participant_id: 13, 14, 35, 48) did not finish the task. We save these participants' data into a separate df and exclude them from source df.
+exclude <- c("13", "14", "35", "48")
+excluded <- source %>% 
+  filter(participant_id %in% exclude)
+
+source <- source %>% 
+  filter(!participant_id %in% exclude)
+
+# we should have 57 participants now
+count(source, participant_id)
 ```
 
-# Join data with participant_id...
-
-# Deidentify participants
-
+Deidentify participants
 We need to remove any information that might identify the participants
 
 ```{r deidentify participants}
@@ -73,10 +100,8 @@ We need to remove any information that might identify the participants
 #   mutate(join = select(., -userId))
 ```
 
-# Save each task separately
+Save source data to file
 
-```{r save tasks}
-# write_tsv(source, file = ("deadline/data/raw/raw_data.tsv"))
+```{r}
+write_csv(source, "data/deadline/raw/raw_data.csv")
 ```
-
-Final tsv files were uploaded to OSF manually.
