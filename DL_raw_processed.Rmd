@@ -1,5 +1,5 @@
 ---
-title: "no-deadline Srtoop: creating processed data from raw"
+title: "Srtoop deadline: creating processed data from raw"
 author: "Zsuzsa Szekely"
 date: '`r format(Sys.time(), "%d %B, %Y")`'
 output: html_document
@@ -432,105 +432,39 @@ test %>%
   count()
 ```
 
-
-
-
-# Trial level exclusion for rt analysis
-
-Create df for rt analysis, then exclude:
-* 1. Error trials
+* Drop outliers (trials 2.5 SDs away from the conditional mean of the participant)
 
 ```{r}
-testRtAnalysis <-
+test <-
   test %>% 
-  filter(correct == TRUE)
-```
-
-* 2. Trials following error trials
-
-```{r}
-testRtAnalysis <-
-  testRtAnalysis %>% 
-  filter(isPrevCorrect == 1L)
-```
-
-* 3. Outliers (trials 2.5 SDs away from the conditional mean of the participant)
-
-```{r}
-testRtAnalysis <-
-  testRtAnalysis %>% 
   filter(dropTrialRt == 0L)
 ```
 
-* 4. Trials following outlier trials
+* Drop trials following outlier trials
 
 ```{r trial level exclusion reaction time}
-testRtAnalysis <-
-  testRtAnalysis %>% 
+test <-
+  test %>% 
   filter(isPrevDropTrialRt == 0L)
 ```
 
-## Checking whether there are trials remaining in each condition (ii, ic, ci, cc) from each participant for the rt analysis
-
-```{r}
-testRtAnalysis %>% 
-  count(participant_id, condition) %>% # get the number of trials per each participant in each condition
-  filter(n != 0) %>% # drop those conditions with 0 trials
-  group_by(participant_id) %>%
-  summarise(n = n()) %>%  # get the number of remaining conditions per participants
-  filter(n != 4) %>% # see if there's anybody with less than 4 conditions
-  nrow() # get the number of these participants
-```
-
-
-
-
-# Trial level exclusion for error analysis
-
-Before the exclusion we check the mean accuracy and SD of accuracy per condition.
+Check the number of the congruent and incongruent trials per condition again
 
 ```{r}
 test %>% 
   group_by(condition) %>% 
-  summarise(mean_acc = mean(correct, na.rm = TRUE), 
-            sd_acc = sd(correct, na.rm = TRUE))
-
-test %>% 
-  group_by(congruency) %>% 
-  summarise(mean_acc = mean(correct, na.rm = TRUE),
-            sd_acc = sd(correct, na.rm = TRUE))
+  count()
 ```
 
-Create df for accuracy analysis, then exclude: 
-* 1: Outliers (trials 2.5 SDs away from the conditional mean rt of the participant)
+
+
+# acc analysis exclusions
+
+For the accuracy analysis there's no more exclusion criteria. We save the data into a separate df for accuracy analysis and we check if after the exclusions there is still some variance in the accuracy scores.
 
 ```{r}
-testAccAnalysis <-
-  test %>% 
-  filter(dropTrialRt == 0L)
+testAccAnalysis <- test
 
-# count participants
-testAccAnalysis %>% 
-  distinct(participant_id) %>% 
-  nrow()
-```
-
-* 2: Trials following outlier trials
-
-```{r trial level exclusion error}
-testAccAnalysis <-
-  testAccAnalysis %>% 
-  filter(isPrevDropTrialRt == 0L)
-
-# count participants
-testAccAnalysis %>% 
-  distinct(participant_id) %>% 
-  nrow()
-```
-
-Check if after the exclusion there is still some variance in the accuracy scores.
-
-```{r}
 testAccAnalysis %>% 
   group_by(condition) %>% 
   summarise(mean_acc = mean(correct, na.rm = TRUE),
@@ -582,6 +516,41 @@ testAccAnalysis %>%
   geom_bar() +
   scale_y_continuous(limits = c(0, 1500)) +
   scale_x_continuous(limits = c(70, 100))
+```
+
+
+
+# rt analysis exclusions
+
+For the rt analysis there are some more trial level exclusion criteria.
+
+Create df for rt analysis, then exclude:
+* 1. Error trials
+
+```{r}
+testRtAnalysis <-
+  test %>% 
+  filter(correct == TRUE)
+```
+
+* 2. Trials following error trials
+
+```{r}
+testRtAnalysis <-
+  testRtAnalysis %>% 
+  filter(isPrevCorrect == 1L)
+```
+
+## Checking whether there are trials remaining in each condition (ii, ic, ci, cc) from each participant for the rt analysis
+
+```{r}
+testRtAnalysis %>% 
+  count(participant_id, condition) %>% # get the number of trials per each participant in each condition
+  filter(n != 0) %>% # drop those conditions with 0 trials
+  group_by(participant_id) %>%
+  summarise(n = n()) %>%  # get the number of remaining conditions per participants
+  filter(n != 4) %>% # see if there's anybody with less than 4 conditions
+  nrow() # get the number of these participants
 ```
 
 
