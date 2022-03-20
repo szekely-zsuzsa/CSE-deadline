@@ -1,5 +1,5 @@
 ---
-title: "Srtoop deadline: creating raw data from source"
+title: "Srtoop no-deadline: creating raw data from source"
 author: "Zsuzsa Szekely"
 date: '`r format(Sys.time(), "%d %B, %Y")`'
 output: html_document
@@ -24,20 +24,17 @@ Import and merge data
 
 ```{r}
 # create list of the names of source files
-file_names <- list.files("data/deadline/source", include.dirs = TRUE)
-file_dirs <- list.dirs("data/deadline/source")
+file_names <- list.files("data/nodeadline/source", include.dirs = TRUE)
+file_dirs <- list.dirs("data/nodeadline/source")
 
 # read csv files
-csv <- file_dirs %>% 
-  map_df(~read_csv(file_names))
-
-# csv <- file_list %>% 
-#   map_df(~read_csv(.))
+# csv <- file_dirs %>% 
+#   map_df(~read_csv(file_names))
   
 
 # create tibble for checking source files before merging them
 ## import data from csv-s into a tibble
-file_tibble_data <- tibble(name = paste0("data/deadline/source/", file_names),
+file_tibble_data <- tibble(name = paste0("data/nodeadline/source/", file_names),
                            csv = map(name, read_csv)
                            )
 
@@ -47,6 +44,15 @@ file_tibble <- file_tibble_data %>%
          col_n = map_dbl(csv, ncol), # check if the number of columns are equal in each csv
          col_names = map(csv, colnames)
          )
+
+# there should be 373 rows and 22 columns in each csv, so we check if it is like that in each csv
+file_tibble %>% 
+  filter(row_n != 373) %>% 
+  count()
+
+file_tibble %>% 
+  filter(col_n != 22) %>% 
+  count()
 
 # add personal id to each csv
 file_tibble <- file_tibble %>% 
@@ -62,10 +68,10 @@ source <- map_df(
   ~ bind_rows(.x))
 
 
-# check if all csv-s were fully included. this means that the number of rows of source tibble divided with the number of csv-s (61) should equal with the number of rows of a single csv (497)
-nrow(source)/61
+# check if all csv-s were fully included. this means that the number of rows of source tibble divided with the number of csv-s (73) should equal with the number of rows of a single csv (373)
+nrow(source)/73
 
-# or in a different way, count how many times each participant_id appears (we expect n = 497 in each case)
+# or in a different way, count how many times each participant_id appears (we expect n = 373 in each case)
 source %>%
   group_by(participant_id) %>%
   count() %>% 
@@ -80,17 +86,17 @@ source %>%
   count(ended_on) %>% 
   # filter unfinished task completions
   filter(any(is.na(ended_on))) %>% 
-  View()
+  distinct(participant_id)
 
-# 4 participants (participant_id: 13, 14, 35, 48) did not finish the task. We save these participants' data into a separate df and exclude them from source df.
-exclude <- c("13", "14", "35", "48")
+# 8 participants (participant_id: 6, 20, 25, 30, 39, 41, 42, 52) did not finish the task. We save these participants' data into a separate df and exclude them from source df.
+exclude <- c("6", "20", "25", "30", "39", "41", "42", "52")
 excluded <- source %>% 
   filter(participant_id %in% exclude)
 
 source <- source %>% 
   filter(!participant_id %in% exclude)
 
-# we should have 57 participants now
+# we should have 65 participants now
 count(source, participant_id)
 ```
 
@@ -106,5 +112,5 @@ We need to remove any information that might identify the participants
 Save source data to file
 
 ```{r}
-write_csv(source, "data/deadline/raw/raw_data.csv")
+write_csv(source, "data/nodeadline/raw/raw_data.csv")
 ```
